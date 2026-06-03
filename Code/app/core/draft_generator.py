@@ -117,7 +117,7 @@ class DraftGenerator:
 
             self.logger.info("草稿描述生成成功 eml=%s xml=%s", eml_path, xml_path)
             self.repository.update_record(record_id, import_status="importing", status="importing")
-            result = self.importer.import_xml(xml_path, subject)
+            result = self.importer.import_xml(xml_path, subject, body)
 
             if result.success:
                 self.repository.update_record(

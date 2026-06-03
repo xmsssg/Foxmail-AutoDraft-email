@@ -13,6 +13,11 @@ from app.core.config_loader import expand_path
 
 user32 = ctypes.WinDLL("user32", use_last_error=True)
 kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+CF_UNICODETEXT = 13
+GMEM_MOVEABLE = 0x0002
+kernel32.GlobalAlloc.restype = ctypes.c_void_p
+kernel32.GlobalLock.restype = ctypes.c_void_p
+user32.SetClipboardData.restype = ctypes.c_void_p
 
 
 EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
@@ -125,6 +130,75 @@ def _send_ctrl_s() -> None:
     user32.keybd_event(vk_control, 0, keyeventf_keyup, 0)
 
 
+def _send_ctrl_a() -> None:
+    vk_control = 0x11
+    vk_a = 0x41
+    keyeventf_keyup = 0x0002
+    user32.keybd_event(vk_control, 0, 0, 0)
+    user32.keybd_event(vk_a, 0, 0, 0)
+    time.sleep(0.05)
+    user32.keybd_event(vk_a, 0, keyeventf_keyup, 0)
+    user32.keybd_event(vk_control, 0, keyeventf_keyup, 0)
+
+
+def _send_ctrl_v() -> None:
+    vk_control = 0x11
+    vk_v = 0x56
+    keyeventf_keyup = 0x0002
+    user32.keybd_event(vk_control, 0, 0, 0)
+    user32.keybd_event(vk_v, 0, 0, 0)
+    time.sleep(0.05)
+    user32.keybd_event(vk_v, 0, keyeventf_keyup, 0)
+    user32.keybd_event(vk_control, 0, keyeventf_keyup, 0)
+
+
+def _set_clipboard_text(text: str) -> None:
+    data = text.encode("utf-16-le") + b"\x00\x00"
+    if not user32.OpenClipboard(None):
+        raise OSError(ctypes.get_last_error(), "无法打开剪贴板")
+    try:
+        if not user32.EmptyClipboard():
+            raise OSError(ctypes.get_last_error(), "无法清空剪贴板")
+        handle = kernel32.GlobalAlloc(GMEM_MOVEABLE, len(data))
+        if not handle:
+            raise OSError(ctypes.get_last_error(), "无法分配剪贴板内存")
+        locked = kernel32.GlobalLock(handle)
+        if not locked:
+            raise OSError(ctypes.get_last_error(), "无法锁定剪贴板内存")
+        try:
+            ctypes.memmove(locked, data, len(data))
+        finally:
+            kernel32.GlobalUnlock(handle)
+        if not user32.SetClipboardData(CF_UNICODETEXT, handle):
+            raise OSError(ctypes.get_last_error(), "无法写入剪贴板")
+    finally:
+        user32.CloseClipboard()
+
+
+def _click_compose_body(hwnd: int) -> None:
+    left, top, right, bottom = _window_rect(hwnd)
+    width = right - left
+    height = bottom - top
+    x = left + max(240, int(width * 0.28))
+    y = top + max(330, int(height * 0.46))
+    user32.SetCursorPos(x, y)
+    user32.mouse_event(0x0002, 0, 0, 0, 0)
+    time.sleep(0.05)
+    user32.mouse_event(0x0004, 0, 0, 0, 0)
+    time.sleep(0.2)
+
+
+def _replace_compose_body(hwnd: int, body: str) -> None:
+    if not body:
+        return
+    _set_clipboard_text(body)
+    _click_compose_body(hwnd)
+    _send_ctrl_a()
+    time.sleep(0.1)
+    _send_ctrl_v()
+    time.sleep(0.3)
+
+
 def _read_bytes_shared(path: Path) -> bytes:
     generic_read = 0x80000000
     file_share_read = 0x00000001
@@ -205,7 +279,7 @@ class FoxmailMapiDraftImporter:
         self.wait_window_seconds = int(foxmail_settings.get("wait_window_seconds", 15))
         self.wait_after_save_seconds = int(foxmail_settings.get("wait_after_save_seconds", 6))
 
-    def import_xml(self, xml_path: Path, subject: str) -> FoxmailMapiImportResult:
+    def import_xml(self, xml_path: Path, subject: str, body: str = "") -> FoxmailMapiImportResult:
         if not self.foxmail_exe.exists():
             return FoxmailMapiImportResult(False, f"Foxmail 不存在: {self.foxmail_exe}")
         if not xml_path.exists():
@@ -221,6 +295,7 @@ class FoxmailMapiDraftImporter:
             return FoxmailMapiImportResult(False, "未找到 Foxmail 写信窗口")
 
         _activate_window(hwnd)
+        _replace_compose_body(hwnd, body)
         _send_ctrl_s()
         time.sleep(self.wait_after_save_seconds)
 

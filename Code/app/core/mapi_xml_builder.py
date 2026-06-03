@@ -38,9 +38,7 @@ def build_mapi_xml(
     xml = "\n".join(
         [
             '<FMMAPI version="1.0">',
-            "  <Subject>",
-            f"    {cdata(subject)}",
-            "  </Subject>",
+            f"  <Subject>{cdata(subject)}</Subject>",
             "  <Receivers>",
             *receiver_lines,
             "  </Receivers>",
@@ -49,9 +47,7 @@ def build_mapi_xml(
             f'      name="{escape(copied_attachment.name)}"',
             f'      path="{escape(str(copied_attachment))}"/>',
             "  </Attachments>",
-            "  <Content>",
-            f"    {cdata(body)}",
-            "  </Content>",
+            f"  <Content>{cdata(body)}</Content>",
             "</FMMAPI>",
             "",
         ]
