@@ -26,6 +26,7 @@
   "scanner": {
     "auto_scan_enabled": true,
     "scan_interval_seconds": 60,
+    "mtime_lookback_seconds": 10,
     "stable_checks": 3,
     "stable_interval_seconds": 1
   }

@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 
 from app.core.config_loader import expand_path
 from app.core.duplicate_guard import sha256_file
 from app.core.eml_builder import build_eml_backup
-from app.core.file_stability import is_file_stable
+from app.core.file_stability import is_file_ready
 from app.core.foxmail_mapi_importer import FoxmailMapiDraftImporter
 from app.core.mapi_xml_builder import build_mapi_xml
 from app.core.scanner import scan_customer_files
@@ -29,10 +30,26 @@ class DraftGenerator:
         scanner_settings = self.settings.get("scanner", {})
         stable_checks = int(scanner_settings.get("stable_checks", 3))
         stable_interval = float(scanner_settings.get("stable_interval_seconds", 1))
+        lookback_seconds = float(scanner_settings.get("mtime_lookback_seconds", 10))
 
         for customer in self.customers:
-            for file_path in scan_customer_files(customer):
-                self.process_file(customer, file_path, stable_checks, stable_interval)
+            scan_started_at = time.time()
+            customer_id = customer["customer_id"]
+            last_scan_at = self.repository.get_scan_cursor(customer_id)
+            modified_after = None
+            if last_scan_at is not None:
+                modified_after = max(0, last_scan_at - lookback_seconds)
+
+            for file_path in scan_customer_files(
+                customer,
+                modified_after=modified_after,
+                modified_before_or_at=scan_started_at,
+            ):
+                result = self.process_file(customer, file_path, stable_checks, stable_interval)
+                if result == "not_ready":
+                    not_ready_mtime = file_path.stat().st_mtime if file_path.exists() else scan_started_at
+                    scan_started_at = min(scan_started_at, max(0, not_ready_mtime - 0.001))
+            self.repository.update_scan_cursor(customer_id, scan_started_at)
 
     def process_file(
         self,
@@ -40,35 +57,39 @@ class DraftGenerator:
         file_path: Path,
         stable_checks: int,
         stable_interval: float,
-    ) -> None:
+    ) -> str:
         self.logger.info("发现候选文件 customer=%s file=%s", customer["customer_name"], file_path)
-        if not is_file_stable(file_path, stable_checks, stable_interval):
-            self.logger.warning("文件未稳定，跳过 file=%s", file_path)
-            return
+        if not is_file_ready(file_path, stable_checks, stable_interval):
+            self.logger.warning("文件未稳定或仍被占用，跳过 file=%s", file_path)
+            return "not_ready"
 
-        reprocess_modified = bool(customer.get("reprocess_modified", False))
-        latest_for_path = self.repository.find_latest_by_file_path(str(file_path))
-        if latest_for_path and not reprocess_modified:
+        stat = file_path.stat()
+        file_mtime = str(stat.st_mtime)
+        existing_signature = self.repository.find_by_file_signature(
+            file_path=str(file_path),
+            file_size=stat.st_size,
+            file_mtime=file_mtime,
+        )
+        if existing_signature:
             self.logger.info(
-                "文件路径已处理过，跳过 file=%s status=%s",
+                "文件版本已处理过，跳过 file=%s status=%s",
                 file_path,
-                latest_for_path["status"],
+                existing_signature["status"],
             )
-            return
+            return "skipped"
 
         file_hash = sha256_file(file_path)
         existing = self.repository.find_by_file_hash(str(file_path), file_hash)
         if existing and existing["status"] == "imported":
             self.logger.info("文件已导入，跳过 file=%s", file_path)
-            return
+            return "skipped"
 
-        stat = file_path.stat()
         if existing:
             record_id = int(existing["id"])
             self.repository.update_record(
                 record_id,
                 file_size=stat.st_size,
-                file_mtime=str(stat.st_mtime),
+                file_mtime=file_mtime,
                 import_status="pending",
                 status="pending",
                 error_message=None,
@@ -80,7 +101,7 @@ class DraftGenerator:
                 file_path=str(file_path),
                 file_name=file_path.name,
                 file_size=stat.st_size,
-                file_mtime=str(stat.st_mtime),
+                file_mtime=file_mtime,
                 file_hash=file_hash,
             )
 
@@ -145,6 +166,7 @@ class DraftGenerator:
                     file_path,
                     result.foxmail_msg_id,
                 )
+                return "processed"
             else:
                 self.repository.update_record(
                     record_id,
@@ -154,6 +176,7 @@ class DraftGenerator:
                     error_message=result.message,
                 )
                 self.logger.error("Foxmail 导入失败 file=%s error=%s", file_path, result.message)
+                return "failed"
         except Exception as exc:
             self.repository.update_record(
                 record_id,
@@ -163,3 +186,4 @@ class DraftGenerator:
                 error_message=str(exc),
             )
             self.logger.exception("处理失败 file=%s", file_path)
+            return "failed"

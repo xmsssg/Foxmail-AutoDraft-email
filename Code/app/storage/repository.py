@@ -72,6 +72,15 @@ class DraftRepository:
                 """
             )
             conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS scan_cursors (
+                    customer_id TEXT PRIMARY KEY,
+                    last_scan_at REAL NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_draft_records_status "
                 "ON draft_records(status)"
             )
@@ -105,6 +114,50 @@ class DraftRepository:
                 """,
                 (file_path,),
             ).fetchone()
+
+    def find_by_file_signature(
+        self,
+        *,
+        file_path: str,
+        file_size: int,
+        file_mtime: str,
+    ) -> sqlite3.Row | None:
+        with self.connect() as conn:
+            return conn.execute(
+                """
+                SELECT * FROM draft_records
+                WHERE file_path = ? AND file_size = ? AND file_mtime = ?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (file_path, file_size, file_mtime),
+            ).fetchone()
+
+    def get_scan_cursor(self, customer_id: str) -> float | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT last_scan_at FROM scan_cursors
+                WHERE customer_id = ?
+                """,
+                (customer_id,),
+            ).fetchone()
+            return float(row["last_scan_at"]) if row else None
+
+    def update_scan_cursor(self, customer_id: str, last_scan_at: float) -> None:
+        timestamp = now_text()
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO scan_cursors (customer_id, last_scan_at, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(customer_id)
+                DO UPDATE SET
+                    last_scan_at = excluded.last_scan_at,
+                    updated_at = excluded.updated_at
+                """,
+                (customer_id, last_scan_at, timestamp),
+            )
 
     def create_pending(
         self,

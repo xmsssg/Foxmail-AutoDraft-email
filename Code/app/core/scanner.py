@@ -51,7 +51,12 @@ def matches_start_mtime(path: Path, customer: dict) -> bool:
     return path.stat().st_mtime > start_timestamp
 
 
-def scan_customer_files(customer: dict) -> Iterable[Path]:
+def scan_customer_files(
+    customer: dict,
+    *,
+    modified_after: float | None = None,
+    modified_before_or_at: float | None = None,
+) -> Iterable[Path]:
     watch_dir = Path(customer["watch_dir"])
     if not watch_dir.exists():
         return []
@@ -63,4 +68,6 @@ def scan_customer_files(customer: dict) -> Iterable[Path]:
         if is_candidate_excel(path)
         and matches_include_patterns(path, customer)
         and matches_start_mtime(path, customer)
+        and (modified_after is None or path.stat().st_mtime > modified_after)
+        and (modified_before_or_at is None or path.stat().st_mtime <= modified_before_or_at)
     )
