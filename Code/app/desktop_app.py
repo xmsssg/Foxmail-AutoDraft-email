@@ -51,6 +51,10 @@ class AutoEmailApp(tk.Tk):
         self.foxmail_path_var = tk.StringVar()
         self.account_storage_var = tk.StringVar()
         self.autostart_var = tk.BooleanVar(value=self._is_autostart_enabled())
+        self.auto_scan_var = tk.BooleanVar(value=True)
+        self.scan_interval_var = tk.StringVar(value="60")
+        self.last_scan_var = tk.StringVar(value="尚未扫描")
+        self.current_scan_is_manual = False
 
         self.customer_id_var = tk.StringVar()
         self.customer_name_var = tk.StringVar()
@@ -66,6 +70,7 @@ class AutoEmailApp(tk.Tk):
         self._sync_settings_vars()
         self.refresh_customer_list()
         self.refresh_records()
+        self._schedule_auto_scan(initial=True)
 
     def _load_runtime(self) -> None:
         self.settings = load_settings()
@@ -117,6 +122,7 @@ class AutoEmailApp(tk.Tk):
         ttk.Label(status_frame, textvariable=self.status_var, font=("Microsoft YaHei UI", 11)).pack(anchor=tk.W)
         ttk.Label(status_frame, textvariable=self.customer_summary_var).pack(anchor=tk.W, pady=(6, 0))
         ttk.Label(status_frame, textvariable=self.foxmail_path_var).pack(anchor=tk.W, pady=(2, 0))
+        ttk.Label(status_frame, textvariable=self.last_scan_var).pack(anchor=tk.W, pady=(2, 0))
 
         actions = ttk.Frame(parent)
         actions.pack(fill=tk.X, pady=14)
@@ -219,8 +225,15 @@ class AutoEmailApp(tk.Tk):
             variable=self.autostart_var,
             command=self.toggle_autostart,
         ).grid(row=2, column=1, sticky=tk.W, pady=8)
+        ttk.Checkbutton(
+            form,
+            text="自动扫描客户文件夹",
+            variable=self.auto_scan_var,
+        ).grid(row=3, column=1, sticky=tk.W, pady=8)
+        ttk.Label(form, text="扫描间隔秒数").grid(row=4, column=0, sticky=tk.W, pady=6)
+        ttk.Entry(form, textvariable=self.scan_interval_var, width=12).grid(row=4, column=1, sticky=tk.W, pady=6)
 
-        ttk.Button(form, text="保存系统设置", command=self.save_settings).grid(row=3, column=1, sticky=tk.W, pady=(8, 0))
+        ttk.Button(form, text="保存系统设置", command=self.save_settings).grid(row=5, column=1, sticky=tk.W, pady=(8, 0))
         form.columnconfigure(1, weight=1)
 
         notes = ttk.LabelFrame(parent, text="说明", padding=12)
@@ -228,6 +241,7 @@ class AutoEmailApp(tk.Tk):
         ttk.Label(notes, text="Foxmail 程序通常是 Foxmail.exe。").pack(anchor=tk.W)
         ttk.Label(notes, text="邮箱本地目录通常位于 Foxmail\\Storage\\邮箱账号。").pack(anchor=tk.W, pady=(4, 0))
         ttk.Label(notes, text="开机自启使用无黑窗启动方式，不会弹出 CMD 窗口。").pack(anchor=tk.W, pady=(4, 0))
+        ttk.Label(notes, text="建议开启自动扫描，默认每 60 秒扫描一次；扫描未完成时不会重复启动下一轮。").pack(anchor=tk.W, pady=(4, 0))
 
     def _entry_row(self, parent: ttk.Frame, label: str, variable: tk.StringVar, row: int) -> None:
         ttk.Label(parent, text=label).grid(row=row, column=0, sticky=tk.W, pady=6)
@@ -253,6 +267,9 @@ class AutoEmailApp(tk.Tk):
         if hasattr(self, "foxmail_exe_var"):
             self.foxmail_exe_var.set(self.settings["foxmail"]["foxmail_exe"])
             self.account_storage_edit_var.set(self.settings["foxmail"]["account_storage"])
+            scanner = self.settings.get("scanner", {})
+            self.auto_scan_var.set(bool(scanner.get("auto_scan_enabled", True)))
+            self.scan_interval_var.set(str(int(scanner.get("scan_interval_seconds", 60))))
         self.autostart_var.set(self._is_autostart_enabled())
 
     def refresh_customer_list(self) -> None:
@@ -337,8 +354,19 @@ class AutoEmailApp(tk.Tk):
         messagebox.showinfo("保存成功", "客户配置已保存。")
 
     def save_settings(self) -> None:
+        try:
+            interval = int(self.scan_interval_var.get().strip())
+        except ValueError:
+            messagebox.showwarning("配置错误", "扫描间隔秒数必须是数字。")
+            return
+        if interval < 10:
+            messagebox.showwarning("配置错误", "扫描间隔建议不少于 10 秒。")
+            return
         self.settings["foxmail"]["foxmail_exe"] = self.foxmail_exe_var.get().strip()
         self.settings["foxmail"]["account_storage"] = self.account_storage_edit_var.get().strip()
+        self.settings.setdefault("scanner", {})
+        self.settings["scanner"]["auto_scan_enabled"] = bool(self.auto_scan_var.get())
+        self.settings["scanner"]["scan_interval_seconds"] = interval
         self._save_settings_file()
         self._reload_runtime()
         self.status_var.set("系统设置已保存。")
@@ -365,12 +393,16 @@ class AutoEmailApp(tk.Tk):
         if path:
             self.account_storage_edit_var.set(path)
 
-    def scan_once(self) -> None:
+    def scan_once(self, manual: bool = True) -> None:
         if self.is_scanning:
             return
         self.is_scanning = True
+        self.current_scan_is_manual = manual
         self.scan_button.configure(state=tk.DISABLED)
-        self.status_var.set("正在扫描客户文件夹，请稍候...")
+        if manual:
+            self.status_var.set("正在扫描客户文件夹，请稍候...")
+        else:
+            self.status_var.set("自动扫描中...")
         threading.Thread(target=self._scan_worker, daemon=True).start()
 
     def _scan_worker(self) -> None:
@@ -387,9 +419,22 @@ class AutoEmailApp(tk.Tk):
         self.is_scanning = False
         self.scan_button.configure(state=tk.NORMAL)
         self.status_var.set(message)
+        self.last_scan_var.set(f"最近扫描：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         self.refresh_records()
-        if not success:
+        if not success and self.current_scan_is_manual:
             messagebox.showerror("扫描失败", message)
+
+    def _schedule_auto_scan(self, initial: bool = False) -> None:
+        scanner = self.settings.get("scanner", {})
+        interval = max(10, int(scanner.get("scan_interval_seconds", 60)))
+        delay = 3000 if initial else interval * 1000
+        self.after(delay, self._auto_scan_tick)
+
+    def _auto_scan_tick(self) -> None:
+        scanner = self.settings.get("scanner", {})
+        if bool(scanner.get("auto_scan_enabled", True)) and not self.is_scanning:
+            self.scan_once(manual=False)
+        self._schedule_auto_scan()
 
     def refresh_records(self) -> None:
         if not hasattr(self, "tree") or self.repository is None:

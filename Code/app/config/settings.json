@@ -24,6 +24,8 @@
     "mapi_xml_dir": "{OUTPUT_DIR}\\generated_mapi_xml"
   },
   "scanner": {
+    "auto_scan_enabled": true,
+    "scan_interval_seconds": 60,
     "stable_checks": 3,
     "stable_interval_seconds": 1
   }
