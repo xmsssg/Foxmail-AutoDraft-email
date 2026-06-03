@@ -1,0 +1,30 @@
+{
+  "foxmail": {
+    "enabled": true,
+    "mode": "mapi_xml_compose_save",
+    "foxmail_exe": "D:\\Program Files\\Foxmail\\Foxmail.exe",
+    "account_storage": "D:\\Program Files\\Foxmail\\Storage\\xusm@fanglin.cn",
+    "mapi_xml_path": "%TEMP%\\FMMapi.xml",
+    "mapi_attachment_dir": "%TEMP%\\FMMAPI",
+    "wait_window_seconds": 15,
+    "wait_after_save_seconds": 6,
+    "keep_eml_after_import": true,
+    "keep_mapi_xml_after_import": true
+  },
+  "database": {
+    "path": "{DATA_DIR}\\draft_records.sqlite"
+  },
+  "logging": {
+    "path": "{LOG_DIR}\\app.log",
+    "max_size_mb": 20,
+    "backup_count": 5
+  },
+  "output": {
+    "eml_dir": "{OUTPUT_DIR}\\generated_eml",
+    "mapi_xml_dir": "{OUTPUT_DIR}\\generated_mapi_xml"
+  },
+  "scanner": {
+    "stable_checks": 3,
+    "stable_interval_seconds": 1
+  }
+}

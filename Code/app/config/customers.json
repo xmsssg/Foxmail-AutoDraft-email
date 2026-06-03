@@ -1,0 +1,13 @@
+[
+  {
+    "customer_id": "suzhou_fanglin",
+    "customer_name": "苏州方林",
+    "watch_dir": "D:\\xusm\\桌面",
+    "include_patterns": ["*送货单*.xlsx", "*送货单*.xls"],
+    "recursive": true,
+    "start_mtime": "",
+    "to": ["xusm@fanglin.cn"],
+    "cc": [],
+    "body": "您好，附件为{subject}，请查收。"
+  }
+]

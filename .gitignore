@@ -1,0 +1,45 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Build and packaging artifacts
+Code/build/
+Code/dist/
+Code/*.spec
+/app/
+*.zip
+*.exe
+*.dll
+*.pyd
+*.pkg
+
+# Runtime data
+Code/config/
+Code/data/
+Code/logs/
+Code/output/
+/config/
+/data/
+/logs/
+/output/
+
+# Local generated files
+*.log
+*.sqlite
+*.sqlite3
+*.db
+
+# Office temp files
+~$*
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
