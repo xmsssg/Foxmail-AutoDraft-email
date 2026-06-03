@@ -46,6 +46,16 @@ class DraftGenerator:
             self.logger.warning("文件未稳定，跳过 file=%s", file_path)
             return
 
+        reprocess_modified = bool(customer.get("reprocess_modified", False))
+        latest_for_path = self.repository.find_latest_by_file_path(str(file_path))
+        if latest_for_path and not reprocess_modified:
+            self.logger.info(
+                "文件路径已处理过，跳过 file=%s status=%s",
+                file_path,
+                latest_for_path["status"],
+            )
+            return
+
         file_hash = sha256_file(file_path)
         existing = self.repository.find_by_file_hash(str(file_path), file_hash)
         if existing and existing["status"] == "imported":

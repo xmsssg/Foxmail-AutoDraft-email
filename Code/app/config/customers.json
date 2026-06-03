@@ -6,6 +6,7 @@
     "include_patterns": ["*送货单*.xlsx", "*送货单*.xls"],
     "recursive": true,
     "start_mtime": "",
+    "reprocess_modified": false,
     "to": ["xusm@fanglin.cn"],
     "cc": [],
     "body": "您好，附件为{subject}，请查收。"

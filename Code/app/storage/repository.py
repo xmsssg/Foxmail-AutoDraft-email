@@ -94,6 +94,18 @@ class DraftRepository:
                 (file_path, file_hash),
             ).fetchone()
 
+    def find_latest_by_file_path(self, file_path: str) -> sqlite3.Row | None:
+        with self.connect() as conn:
+            return conn.execute(
+                """
+                SELECT * FROM draft_records
+                WHERE file_path = ?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (file_path,),
+            ).fetchone()
+
     def create_pending(
         self,
         *,
